@@ -43,96 +43,337 @@ class_diag <- function(score, truth, positive, cutoff=.5){
   round(data.frame(acc,sens,spec,ppv,f1,ba=(sens+spec)/2,auc, row.names = "Metrics"),4)
 }
 ```
+#### Austin Ivery-Clemons (adi294)
 
-# Mining, Classification, Prediction
+## Introduction 
 
-## Name and EID here
+My project contains the following datasets: "zipcode_imr", "zipcode_dem", and "zipcode_income". The "zipcode_imr" dataset is from *The University of Texas System* and was originally titled "*Infant Mortality in Communities Across Texas*". The dataset contains every zip code in the state of Texas along with the infant mortality rate (death per 1,000 births) for that zip code, if applicable. The two variables for this dataset are zip codes and infant mortality rates. The "zipcode_dem" dataset is from *data.census.gov* and is a demographic table created by the US census. The dataset contains demographic data from every zip code in Texas, and I was able to download specific zip codes for my data. The variables for this dataset included total population, median age, number of hispanic individuals of any race, number of white individuals, number of black individuals, number of Native American individuals, and number of Asian individuals for each selected zip code. The final dataset was the "zipcode_income" dataset. The dataset is also from *data.census.gov* from the US census. This dataset contains the median household income for every zip code in Texas, and I was able to download specific zip codes for my data. The variable for this dataset included the median household income for each dataset specified.
 
-### Introduction 
+The reason chose these dataset is due to my interest in health equity. I am a biology and black studies major and plan to attend medical school. I am also a part of a research team currently working towards health equity. I wanted to do a project revolved around my passion, which is why I chose infant mortality rates around Texas. This project will put health inequity into numbers. It will show that areas with less money, and with more black and brown individuals, endure more infant mortality than areas with more money. To visualize health inequity is important, because a problem must first be recognized in order for it to be fixed, and for me, this project works towards recognizing the problem. The zip codes analyzed for this project were predominantly from Austin and Houston. All of Austin's zip codes are included, and some zip codes around Austin as well. The zip codes from Houston have been specifically chosen to include predominantly black areas. This was to create a difference in demographics, and be able to compare between predominantly white areas to predominantly black and brown areas.
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+The final dataset I used for this project is a combination of the ones listed above. After tidying the datasets and joining, I created a dataset with the following variables: 'zip_code', 'income_class', 'median_income', 'IMR', 'hispanic', 'white', 'black', and 'high_IMR'. 'zip_code' was a categorical variable containing the zip codes used. 'income_class' was a categorical variable listing the median incomes of the zip codes in various income classes (e.g. middle class). 'median_income' was a numerical variable which listed the median income for the zip code. 'IMR' was a numerical variable which listed  the infant mortality rate for the zip code. 'hispanic' was a numerical variable which listed the proportion of hispanic people in that zip code. 'white' was a numerical variable which listed the proportion of white people in that zip code. 'black' was a numerical variable which listed the proportion of black people in that zip code. 'high_IMR' was a binary variable which listed "1" for zip codes with IMR's greater than or equal to 4, and listed "0" for IMR's less than 4. All of this data was in the dataset titled: 'zipcode'. The final dataset has eight variables with 58 observations in each. For my categorical variable of 'zip_code', there are 58 different groups since there are 58 different zipcodes, each having 1 observation. For my categorical variable of 'income class', the lower class group has 11 observations, the lower middle class has 16 observations, the middle class has 26 observations, and the upper middle class has 5 observations. The binary variable of of 'high_IMR' has 26 observations for "0" (or low IMR), and 32 observations for "1" (or high IMR).
 
+---
+
+## The data
+
+##### Importing
 ```{R}
 library(tidyverse)
-# read your datasets in here, e.g., with read_csv()
 
-# if your dataset needs tidying, do so here
+zipcode_imr <- read_csv("zipcode_imr.csv")
 
-# any other code here
+zipcode_dem <- read_csv("zipcode_dem.csv", 
+    col_names = FALSE)
+
+zipcode_income <- read_csv("zipcode_income.csv", 
+    col_names = FALSE)
 ```
 
-### Cluster Analysis
+##### Reshaping dataset: "zipcode_imr"
+```{r}
+zipcode_imr <- zipcode_imr %>% pivot_wider(names_from = "Zip", values_from = "IMR")
+zipcode_imr <- zipcode_imr %>% pivot_longer(1:2455, names_to = "zip_code", values_to = "IMR")
+glimpse(zipcode_imr)
+```
+
+##### Reshaping dataset: "zipcode_dem":
+```{r}
+zipcode_dem <- zipcode_dem %>% pivot_longer(cols = c('X2':'X265'))
+zipcode_dem <- zipcode_dem %>% pivot_wider(names_from = "X1", values_from = "value")
+zipcode_dem <- zipcode_dem %>% select(-name)
+zipcode_dem <- zipcode_dem %>% separate(Label, into = c(NA, "zip_code"), sep = 6)
+zipcode_dem <- zipcode_dem %>% filter(!str_detect(zip_code, "Margin"), !str_detect(zip_code, "Percent"))
+zipcode_dem <- zipcode_dem %>% separate(zip_code, into = c("zip_code", NA), sep = 5)
+
+zipcode_dem <- zipcode_dem %>% select(zip_code, total_population = "Total population", median_age = "Median age (years)", hispanic_latino_any_race = "Hispanic or Latino (of any race)", white_alone = "White alone", black_alone = "Black or African American alone", native_american_alone = "American Indian and Alaska Native alone", asian_alone = "Asian alone")
+
+zipcode_dem <- as.data.frame(apply(zipcode_dem, 2, as.numeric))
+zipcode_dem$zip_code <- as.character(zipcode_dem$zip_code)
+
+glimpse(zipcode_dem)
+```
+
+##### Reshaping dataset: "zipcode_income":
+```{r}
+zipcode_income <- zipcode_income %>% pivot_longer(cols = c('X2':'X537'))
+zipcode_income <- zipcode_income %>% pivot_wider(names_from = "X1", values_from = "value")
+zipcode_income <- zipcode_income %>% select(-name, -Total, -"Mean income (dollars)")
+
+zipcode_income <- zipcode_income %>% filter(!str_detect(Label, "Texas"), !str_detect(Label, "Margin"), !str_detect(Label, "Families"), !str_detect(Label, "families"), !str_detect(Label, "Nonfamily"))
+
+zipcode_income <- zipcode_income %>% separate(Label, into = c(NA, "zip_code"), sep = 6)
+zipcode_income <- zipcode_income %>% separate(zip_code, into = c("zip_code", NA), sep = 5)
+zipcode_income <- zipcode_income %>% select(zip_code, median_income = "Median income (dollars)")
+zipcode_income$median_income <- as.numeric(zipcode_income$median_income)
+
+glimpse(zipcode_income)
+```
+
+##### Joining data:
+```{r}
+zipcode <- zipcode_dem %>% inner_join(zipcode_imr, by = "zip_code")
+zipcode <- zipcode %>% inner_join(zipcode_income, by = "zip_code")
+
+glimpse(zipcode)
+```
+
+##### Rearranging, cleaning, and mutating data:
+```{r}
+zipcode <- zipcode %>% mutate(income_class = case_when(median_income < 35000 ~ "lower class",
+                                                   median_income >= 35000 & 50000 > median_income ~ "lower middle class",
+                                                   median_income >= 50000 & 110000 >= median_income ~ "middle class",
+                                                   median_income > 110000 ~ "upper middle class"))
+
+zipcode <- zipcode %>% mutate(hispanic = hispanic_latino_any_race/total_population,
+                          white = white_alone/total_population,
+                          black = black_alone/total_population,
+                          native = native_american_alone/total_population,
+                          asian = asian_alone/total_population)
+
+zipcode <- zipcode %>% select(-total_population, -median_age, -hispanic_latino_any_race, -white_alone, -black_alone, -native_american_alone, -asian_alone, -native, -asian)
+
+zipcode <- zipcode %>% select(zip_code, income_class, median_income, IMR, hispanic, white, black)
+
+zipcode <- zipcode %>% na.omit()
+
+glimpse(zipcode)
+```
+
+##### Creating binary variable:
+```{r}
+zipcode <- zipcode %>% mutate(high_IMR = case_when(IMR >= 4 ~ 1,
+                                           white < 4 ~ 0))
+
+glimpse(zipcode)
+```
+A binary variable names 'high_IMR' was created from the numeric 'IMR' variable. An IMR of 4 or greater was considered to be a "high" IMR, and any zip code with said high IMR would recieve a "1" while those lower than 4 would receive a "0".
+
+---
+
+## Cluster Analysis
 
 ```{R}
 library(cluster)
-# clustering code here
-```
 
-Discussion of clustering here
-    
-    
-### Dimensionality Reduction with PCA
+sil_width<-vector()
+for(i in 2:10){ 
+  temp <- zipcode %>% select(median_income, IMR, hispanic, white, black) %>% scale()
+  kms <- kmeans(temp,centers=i) 
+  sil <- silhouette(kms$cluster,dist(temp)) 
+  sil_width[i]<-mean(sil[,3])} #computing silhouette width
+
+ggplot()+geom_line(aes(x=1:10,y=sil_width))+scale_x_continuous(name="k",breaks=1:10) #visualizing silhouette width
+
+set.seed(322)
+pam1 <- zipcode %>% select(median_income, IMR, hispanic, white, black) %>% pam(k=2)
+pam1 #cluster analysis
+
+plot(pam1,which=2) #gives average silhouette width
+
+library(GGally)
+
+zipcode %>% select(median_income, IMR, hispanic, white, black) %>%
+  mutate(cluster=as.factor(pam1$clustering)) %>%
+  ggpairs(aes(color=cluster)) #visualizes clusters
+
+#need to do goodness-of-fit
+
+```
+PAM clustering was performed on five variables, which included: median_income, IMR, hispanic, white, and black. The numeric variables were scaled and the cluster with the largest silhouette width in k-means was 2. The average width of the two silhouettes was 0.59, which means a reasonable structure has been found in terms of the goodness-of-fit of the clusters. From the visualization of the clusters that showed all pairwise combinations, it can be seen that the red cluster (cluster 1) is low in median income, higher in IMR, higher in hispanic populations, lower in white populations, and higher in black populations compared to the blue cluster (cluster 2). There was also some interesting clear correlations that could be seen. Median income and proportion of white individuals have a positive correlation, with a coefficient of 0.804. There is a also a positive correlation coefficient of 0.628 between IMR and the proportion of black individuals.
+
+---
+
+## Dimensionality Reduction with PCA
 
 ```{R}
-# PCA code here
+zipcode_pca <- zipcode %>% select(median_income, IMR, hispanic, white, black) %>% scale() #choosing numeric variables and scaling
+rownames(zipcode_pca) <- zipcode$zip_code #putting zip codes as row names into scaled numbers
+zipcode_pca <- princomp(zipcode_pca, cor=T) #makes pca
+summary(zipcode_pca, loadings = T) #pca results
+
+#visualizing:
+eigval <- zipcode_pca$sdev^2
+varprop = round(eigval/sum(eigval), 2)
+
+ggplot() + geom_bar(aes(y = varprop, x = 1:5), stat = "identity") + xlab("") +
+  geom_path(aes(y = varprop, x = 1:5)) +
+  geom_text(aes(x = 1:5, y = varprop, label = round(varprop, 2)), vjust = 1, col = "white", size = 5) +
+  scale_y_continuous(breaks = seq(0, .7, .2), labels = scales::percent) +
+  scale_x_continuous(breaks = 1:10) #this is all of the PCS graphed
+
+round(cumsum(eigval)/sum(eigval), 2) #cumulative proprotion of variance (going to keep PC1 + PC2 since they are 0.86 together)
+
+
+zipcodedf <-data.frame(Name=zipcode$zip_code, PC1=zipcode_pca$scores[, 1],PC2=zipcode_pca$scores[, 2])
+ggplot(zipcodedf, aes(PC1, PC2)) + geom_point() #visualizes observations' PCs that I retained
+
 ```
+Principle component 1 captures 63.8% of all the variance across all five variables. Components 2, 3, 4, and 5 capture around 22.4%, 9.1%, 4.6%, and 0.1% of the total variance, respectively. PC1 and PC2 were retained since together they were responsible for 86% of the total variance in the dataset. 
 
-Discussions of PCA here. 
+PC1 showed the following relationships: zip codes with a high propotion of white indivduals tend to be low in IMR, hispanic, and black. Zip codes with a high median income tend to be low in IMR, hispanic, and black. Zip codes with a high IMR tend to be high in hispanic and black. Zip codes with a high IMR tend to be low in median income and white.
 
-###  Linear Classifier
+PC2 showed that if a zip code is high in hispanic, it tends to be lower in every other variable.
 
+---
+
+##  Linear Classifier
+
+#### logistic regression
 ```{R}
-# linear classifier code here
+fit <- glm(high_IMR ~ median_income + hispanic + white + black, data = zipcode, family = "binomial")
+
+score <- predict(fit, type = "response")
+
+table(truth= factor(zipcode$high_IMR==1, levels=c("TRUE","FALSE")),
+      prediction= factor(score>.5, levels=c("TRUE","FALSE")))
+
+class_diag(score, zipcode$high_IMR, positive = 1)
 ```
 
+#### Logistic regression K-fold cross-validation
 ```{R}
-# cross-validation of linear classifier here
+set.seed(1234)
+k=10 #choose number of folds
+
+data <- zipcode[sample(nrow(zipcode)),] #randomly order rows
+folds <- cut(seq(1:nrow(zipcode)),breaks=k,labels=F) #create folds
+
+diags <- NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train <- data[folds!=i,] 
+  test <- data[folds==i,]
+  truth <- test$high_IMR ## Truth labels for fold i
+  
+  ## Train model on training set (all but fold i)
+  fit <- glm(high_IMR ~ median_income + hispanic + white + black, data = train, family="binomial")
+  
+  ## Test model on test set (fold i) 
+  probs <- predict(fit, newdata = test, type="response")
+  
+  ## Get diagnostics for fold i
+  diags <- rbind(diags, class_diag(probs, truth, positive=1))
+}
+
+summarize_all(diags, mean)
 ```
+A logistic regression was performed to predict the binary variable of 'high_IMR' from the rest of the numeric variables. The AUC of the logistic regression was 0.815, which means the model is performing good. The AUC of the cross-validation of the logistic regression was 0.833, which is also good. The model performed better under AUC in the cross-validation, which means there were not signs of overfitting. 
 
-Discussion here
+---
 
-### Non-Parametric Classifier
+## Non-Parametric Classifier
 
+#### k Nearest Neighbores (kNN)
 ```{R}
 library(caret)
-# non-parametric classifier code here
+
+knn_fit <- knn3(factor(high_IMR==1, levels = c("TRUE", "FALSE")) ~ median_income + hispanic + white + black, data = zipcode, k = 5)
+
+y_hat_knn <- predict(knn_fit, zipcode)
+
+table(truth= factor(zipcode$high_IMR==1, levels=c("TRUE","FALSE")),
+      prediction= factor(y_hat_knn[,1]>.5, levels=c("TRUE","FALSE")))
+
+class_diag(y_hat_knn[,1], zipcode$high_IMR, positive = 1)
 ```
 
+#### kNN cross-validation
 ```{R}
-# cross-validation of np classifier here
+set.seed(1234)
+
+k=10 #choose number of folds
+
+data <- zipcode[sample(nrow(zipcode)),] #randomly order rows
+folds <- cut(seq(1:nrow(zipcode)),breaks=k,labels=F) #create folds
+
+diags<-NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train<-data[folds!=i,] 
+  test<-data[folds==i,]
+  truth<-test$high_IMR ## Truth labels for fold i
+  
+  ## Train model on training set (all but fold i)
+  fit<-knn3(high_IMR ~ median_income + hispanic + white + black, data=train)
+  
+  ## Test model on test set (fold i) 
+  probs <- predict(fit, newdata = test)[,2]
+  
+  ## Get diagnostics for fold i
+  diags <- rbind(diags, class_diag(probs, truth, positive=1))
+}
+
+summarize_all(diags,mean)
 ```
 
-Discussion
+A k-nearest-neighbors was performed to predict the binary variable of 'high_IMR' from the rest of the numeric variables, the same combination from the linear classifier. The AUC of the knn was 0.859, which means the model is performing good. The AUC of the cross-validation of the knn was 0.608, which is poor. The model performed worse under AUC in the cross-validation, which means there is signs of overfitting. 
 
 
-### Regression/Numeric Prediction
+The parametric model performs worse than the linear classifier in its cross-validation performance. While the linear regression CV AUC was 0.833, the knn CV AUC was far below with a value of 0.608.
 
+---
+
+## Regression/Numeric Prediction
+
+#### Linear regression
 ```{R}
-# regression model code here
+fit <- lm(black ~ IMR + median_income, data = zipcode)
+yhat <- predict(fit)
+
+mean((zipcode$black - yhat)^2)
 ```
 
+#### Linear regression k-fold cross-validation
 ```{R}
-# cross-validation of regression model here
+set.seed(1234)
+k=5 #choose number of folds
+
+data<-mtcars[sample(nrow(mtcars)),] #randomly order rows
+folds<-cut(seq(1:nrow(mtcars)),breaks=k,labels=F) #create folds
+
+diags<-NULL
+for(i in 1:k){
+  train <- zipcode[folds!=i,]
+  test <- zipcode[folds==i,]
+  
+  ## Fit linear regression model to training set
+  fit<-lm(black ~ IMR + median_income,data = zipcode)
+  
+  ## Get predictions/y-hats on test set (fold i)
+  yhat <- predict(fit, newdata = test)
+  
+  ## Compute prediction error  (MSE) for fold i
+  diags <-mean((test$black - yhat)^2) 
+}
+
+mean(diags) ## get average MSE across all folds
 ```
 
-Discussion
+The MSE for overall dataset (retrirved from the linear regression) was 0.018 while the average MSE across the k testing folds was 0.007. Since MSE is less in the cross validation, it does not show sings of overfitting. 
 
-### Python 
+---
+
+## Python 
 
 ```{R}
 library(reticulate)
+use_python("/usr/bin/python3", required = F)
 ```
 
 ```{python}
-# python code here
+import pandas as pd
+
+zipcode = r.zipcode
+upper = (zipcode.filter(['IMR','income_class']).query('income_class=="upper middle class"'))
+middle = (zipcode.filter(['IMR','income_class']).query('income_class=="middle class"'))
+lower = (zipcode.filter(['IMR','income_class']).query('income_class=="lower class"'))
 ```
 
-Discussion
+```{r}
+py$upper %>% summarize(mean(IMR))
+py$middle %>% summarize(mean(IMR))
+py$lower %>% summarize(mean(IMR))
+```
 
-### Concluding Remarks
-
-Include concluding remarks here, if any
-
-
-
-
+The IMR's of the upper middle class, middle class, and lower class groups were filtered from the zipcode dataset in the python coding chunk. These python filters were then plugged into an r coding chunk and piped into 'summarize(mean(IMR))' to find the average infant mortality rate of those three income classes.

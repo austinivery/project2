@@ -1,0 +1,399 @@
+---
+title: "Project notes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Find data:
+
+##importing data:
+```{r}
+library(tidyverse)
+
+zipcode_imr <- read_csv("zipcode_imr.csv")
+zipcode_imr %>% glimpse()
+
+zipcode_dem <- read_csv("zipcode_dem.csv", 
+    col_names = FALSE)
+zipcode_dem %>% glimpse()
+
+zipcode_income <- read_csv("zipcode_income.csv", 
+    col_names = FALSE)
+zipcode_income %>% glimpse()
+```
+
+##Reshaping dataset: "zipcode_imr"
+```{r}
+zipcode_imr <- zipcode_imr %>% pivot_wider(names_from = "Zip", values_from = "IMR")
+zipcode_imr <- zipcode_imr %>% pivot_longer(1:2455, names_to = "zip_code", values_to = "IMR")
+glimpse(zipcode_imr)
+```
+
+##Reshaping dataset: "zipcode_dem":
+```{R}
+zipcode_dem <- zipcode_dem %>% pivot_longer(cols = c('X2':'X265'))
+zipcode_dem <- zipcode_dem %>% pivot_wider(names_from = "X1", values_from = "value")
+zipcode_dem <- zipcode_dem %>% select(-name)
+zipcode_dem <- zipcode_dem %>% separate(Label, into = c(NA, "zip_code"), sep = 6)
+zipcode_dem <- zipcode_dem %>% filter(!str_detect(zip_code, "Margin"), !str_detect(zip_code, "Percent"))
+zipcode_dem <- zipcode_dem %>% separate(zip_code, into = c("zip_code", NA), sep = 5)
+
+zipcode_dem <- zipcode_dem %>% select(zip_code, total_population = "Total population", median_age = "Median age (years)", hispanic_latino_any_race = "Hispanic or Latino (of any race)", white_alone = "White alone", black_alone = "Black or African American alone", native_american_alone = "American Indian and Alaska Native alone", asian_alone = "Asian alone")
+
+zipcode_dem <- as.data.frame(apply(zipcode_dem, 2, as.numeric))
+zipcode_dem$zip_code <- as.character(zipcode_dem$zip_code)
+
+glimpse(zipcode_dem)
+```
+
+##Reshaping dataset: "zipcode_income":
+```{r}
+zipcode_income <- zipcode_income %>% pivot_longer(cols = c('X2':'X537'))
+zipcode_income <- zipcode_income %>% pivot_wider(names_from = "X1", values_from = "value")
+zipcode_income <- zipcode_income %>% select(-name, -Total, -"Mean income (dollars)")
+
+zipcode_income <- zipcode_income %>% filter(!str_detect(Label, "Texas"), !str_detect(Label, "Margin"), !str_detect(Label, "Families"), !str_detect(Label, "families"), !str_detect(Label, "Nonfamily"))
+
+zipcode_income <- zipcode_income %>% separate(Label, into = c(NA, "zip_code"), sep = 6)
+zipcode_income <- zipcode_income %>% separate(zip_code, into = c("zip_code", NA), sep = 5)
+zipcode_income <- zipcode_income %>% select(zip_code, median_income = "Median income (dollars)")
+zipcode_income$median_income <- as.numeric(zipcode_income$median_income)
+
+glimpse(zipcode_income)
+```
+
+##Joining data:
+```{r}
+zipcode <- zipcode_dem %>% inner_join(zipcode_imr, by = "zip_code")
+zipcode <- zipcode %>% inner_join(zipcode_income, by = "zip_code")
+
+glimpse(zipcode)
+```
+
+##Rearranging and mutating to clean data:
+```{r}
+zipcode <- zipcode %>% mutate(income_class = case_when(median_income < 35000 ~ "lower class",
+                                                   median_income >= 35000 & 50000 > median_income ~ "lower middle class",
+                                                   median_income >= 50000 & 110000 >= median_income ~ "middle class",
+                                                   median_income > 110000 ~ "upper middle class"))
+
+zipcode <- zipcode %>% mutate(proportion_hispanic = hispanic_latino_any_race/total_population,
+                          proportion_white = white_alone/total_population,
+                          proportion_black = black_alone/total_population,
+                          proportion_native = native_american_alone/total_population,
+                          proportion_asian = asian_alone/total_population)
+
+zipcode <- zipcode %>% select(zip_code, total_population, median_age, median_income, income_class, IMR, hispanic_latino_any_race, proportion_hispanic, white_alone, proportion_white, black_alone, proportion_black, native_american_alone, proportion_native, asian_alone, proportion_asian)
+```
+
+##taking away certain rows and renaming:
+```{r}
+zipcode <- zipcode %>% select(-total_population, -median_age, -hispanic_latino_any_race, -white_alone, -black_alone, -native_american_alone, -asian_alone)
+
+zipcode <- zipcode %>% select(zip_code, median_income, income_class, IMR, hispanic = proportion_hispanic, white = proportion_white, black = proportion_black, native = proportion_native, asian = proportion_asian)
+
+zipcode <- zipcode %>% na.omit()
+
+#makde the data to where it only contians: zip_code, median income, income class, IMR, high IMR, hispanic, white, black
+```
+
+##create binary data, which will be a 1 if a zipcode has a high IMR (IMR of 5 or greater) or not high IMR
+```{r}
+zipcode <- zipcode %>% mutate(high_IMR = case_when(IMR >= 4 ~ 1,
+                                           white < 4 ~ 0))
+
+zipcode %>% summarize(median(IMR))
+```
+dataset will need to be tidy, so pick one that is or tidy it before beginning
+
+--------------------------------------------------------------------------------
+#Introdction:
+Introduce your dataset and each of your variables (or just your main variables if you have lots) in a paragraph. Where did you find the data? What are each of the variables measuring? How many observations are there? How many of observations are there per group for your categorical/binary variable(s)?
+
+--------------------------------------------------------------------------------
+#Clustering:
+Perform PAM clustering on at least three of your variables (3 is the bare minimum: using more/all of them will make this much more interesting)! Bonus point for incorporating at least one categorical variable and clustering based on gower dissimilarities.
+
+All relevant steps discussed in class (e.g., picking number of clusters based on largest average silhouette width)
+
+Visualize the clusters by showing all pairwise combinations of variables colored by cluster assignment (using ggpairs)
+
+```{r}
+library(cluster)
+
+sil_width<-vector()
+for(i in 2:10){ 
+  temp <- zipcode %>% select(median_income, IMR, hispanic, white, black) %>% scale()
+  kms <- kmeans(temp,centers=i) 
+  sil <- silhouette(kms$cluster,dist(temp)) 
+  sil_width[i]<-mean(sil[,3])} #computing silhouette width
+
+
+ggplot()+geom_line(aes(x=1:10,y=sil_width))+scale_x_continuous(name="k",breaks=1:10) #visualizing silhouette width
+
+set.seed(322)
+pam1 <- zipcode %>% select(median_income, IMR, hispanic, white, black) %>% pam(k=2)
+pam1 #cluster analysis
+
+plot(pam1,which=2) #gives average silhouette width
+
+library(GGally)
+
+zipcode1 %>% select(median_income, IMR, hispanic, white, black) %>%
+  mutate(cluster=as.factor(pam1$clustering)) %>%
+  ggpairs(aes(color=cluster)) #visualizes clusters
+
+#need to do goodness-of-fit
+
+```
+Include a paragraph or two describing results found, interpreting the clusters in terms of the original variables and observations, discussing goodness of fit of the cluster solution, etc.
+
+PAM clustering was performed on five variables, which included: median_income, IMR, hispanic, white, and black. The numeric variables were scaled the cluster with the largest silhouette width in k-means was 2.
+
+--------------------------------------------------------------------------------
+#Dimensionality Reduction:
+Perform PCA on at least three of your numeric variables (3 is the bare minimum: using more/all of them will make this much more interesting)! You can use `eigen()` on the correlation matrix, but `princomp(..., cor=T)` is probably going to be easier.
+
+Visualize the observations' PC scores for the PCs you retain (keep at least PC1 and PC2) in ggplot. A biplot with `fviz_pca()` is fine too!
+
+```{r}
+zipcode2 <- zipcode %>% select(median_income, IMR, hispanic, white, black) %>% scale() #choosing numeric variables and scaling
+rownames(zipcode2) <- zipcode1$zip_code #putting zip codes as row names into scaled numbers
+zipcode_pca <- princomp(zipcode2, cor=T) #makes pca
+summary(zipcode_pca, loadings = T) #pca results
+
+#visualizing:
+eigval <- zipcode_pca$sdev^2
+varprop = round(eigval/sum(eigval), 2)
+
+ggplot() + geom_bar(aes(y = varprop, x = 1:5), stat = "identity") + xlab("") +
+  geom_path(aes(y = varprop, x = 1:5)) +
+  geom_text(aes(x = 1:5, y = varprop, label = round(varprop, 2)), vjust = 1, col = "white", size = 5) +
+  scale_y_continuous(breaks = seq(0, .7, .2), labels = scales::percent) +
+  scale_x_continuous(breaks = 1:10) #this is all of the PCS graphed
+
+round(cumsum(eigval)/sum(eigval), 2) #cumulative proprotion of variance (going to keep PC1 + PC2 = 0.86 together)
+
+
+zipcodedf <-data.frame(Name=zipcode1$zip_code, PC1=zipcode_pca$scores[, 1],PC2=zipcode_pca$scores[, 2])
+ggplot(zipcodedf, aes(PC1, PC2)) + geom_point() #visualizes observations' PCs that I retained
+
+```
+Include a paragraph or two describing results with a focus on what it means to score high/low on each PC you retain (interpreting each PC you retained in terms of the original variables/loadings); also discuss how much of the total variance in your dataset is explained by these PCs.
+
+
+... Principle component 1 captures 63.8% of all the variance across all five variables. Components 2, 3, 4, and 5 capture around 22.4%, 9.1%, 4.6%, and 0.1% of the total variance, respectively. 
+
+#lecture notes
+-keep PCs until they add up to atleast 80% variance (PC1 = 0.63 % PC2 = 0.22)
+
+-tradeoff between positive and negative loadings score
+  if one is positive you are high in it while being low in the one that is negative
+  the higher the number, the more strong the correlation
+  
+  positives are on the same trend (high median income tends to have high white pop.)
+  negatives are on the same trend (high in black pop. tends to have high IMR)
+
+-so far comp. 1: white vs. IMR tradeoff (it's the strongest tradeoff)
+  if you are high in white population, you tend to be low in IMR, hispanic, and black
+  if you are high in median income, you tend to be low in IMR, hispanic, and black
+  if you are high in IMR, you tend to be high in hispanic and black, while low in income and white
+  pattern continues
+
+-comp 2:
+  saying if you are high in hispanic, you're lower in everything else?
+--------------------------------------------------------------------------------
+#Linear Classifier and Cross-Validation:
+
+```{r}
+class_diag <- function(score, truth, positive, cutoff=.5, strictlygreater=T){
+  if(strictlygreater==T) pred <- factor(score>cutoff,levels=c("TRUE","FALSE"))
+  else pred <- factor(score>=cutoff,levels=c("TRUE","FALSE"))
+  truth <- factor(truth==positive, levels=c("TRUE","FALSE"))
+  tab<-table(truth, pred)
+  acc=sum(diag(tab))/sum(tab)
+  sens=tab[1,1]/rowSums(tab)[1]
+  spec=tab[2,2]/rowSums(tab)[2]
+  ppv=tab[1,1]/colSums(tab)[1]
+#CALCULATE F1
+  f1=2*(sens*ppv)/(sens+ppv)
+#CALCULATE EXACT AUC
+  truth<-as.numeric(truth=="TRUE")
+  ord<-order(score, decreasing=TRUE)
+  score <- score[ord]; truth <- truth[ord]
+  TPR=cumsum(truth)/max(1,sum(truth))
+  FPR=cumsum(!truth)/max(1,sum(!truth))
+  dup<-c(score[-1]>=score[-length(score)], FALSE)
+  TPR<-c(0,TPR[!dup],1); FPR<-c(0,FPR[!dup],1)
+  n <- length(TPR)
+  auc<- sum( ((TPR[-1]+TPR[-n])/2) * (FPR[-1]-FPR[-n]) )
+  round(data.frame(acc,sens,spec,ppv,f1,ba=(sens+spec)/2,auc, row.names = "Metrics"),4)
+}
+```
+
+Using a linear classifer, (e.g., linear regression, logistic regression, SVM), predict a binary variable (response) from ALL of the rest of the numeric variables in your dataset (if you have 10+, OK to just pick 10).
+
+Train the model to the entire dataset and then use it to get predictions for all observations. Run the `class_diag` function or equivalent to get in-sample performance and interpret, including a discussion of how well the model is doing per AUC. Finally, report a confusion matrix.
+```{r}
+#logistic:
+fit <- glm(high_IMR ~ median_income + hispanic + white + black, data = zipcode, family = "binomial")
+score <- predict(fit, type = "response")
+class_diag(score, zipcode$high_IMR, positive = 1)
+```
+
+Perform k-fold CV on this same model (fine to use caret). Run the `class_diag` function or equivalent to get out-of-sample performance averaged across your k folds and discuss how well is your model predicting new observations per CV AUC.
+```{r}
+set.seed(1234)
+k=10 #choose number of folds
+
+data <- zipcode[sample(nrow(zipcode)),] #randomly order rows
+folds <- cut(seq(1:nrow(zipcode)),breaks=k,labels=F) #create folds
+
+diags <- NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train <- data[folds!=i,] 
+  test <- data[folds==i,]
+  truth <- test$high_IMR ## Truth labels for fold i
+  
+  ## Train model on training set (all but fold i)
+  fit <- glm(high_IMR ~ median_income + hispanic + white + black, data = train, family="binomial")
+  
+  ## Test model on test set (fold i) 
+  probs <- predict(fit, newdata = test, type="response")
+  
+  ## Get diagnostics for fold i
+  diags <- rbind(diags, class_diag(probs, truth, positive=1))
+}
+
+summarize_all(diags, mean)
+
+
+```
+Discuss the results in a paragraph. How well is your model predicting new observations per CV AUC? Do you see signs of overfitting?
+....
+
+--------------------------------------------------------------------------------
+#Non-Parametric Classifier and Cross-Validation:
+Fit a non-parametric classifier (e.g., k-nearest-neighbors, classification tree) to the exact same dataset/variables you used with the linear classifier (same response variable too).
+    
+Train the model to the entire dataset and then use it to get predictions for all observations. Run the `class_diag` function or equivalent to get in-sample performance and interpret, including a discussion of how well the model is doing per AUC. Finally, report a confusion matrix.
+
+```{r}
+library(caret)
+
+knn_fit <- knn3(factor(high_IMR==1, levels = c("TRUE", "FALSE")) ~ median_income + hispanic + white + black, data = zipcode, k = 5)
+
+y_hat_knn <- predict(knn_fit, zipcode)
+
+table(truth= factor(zipcode$high_IMR==1, levels=c("TRUE","FALSE")),
+      prediction= factor(y_hat_knn[,1]>.5, levels=c("TRUE","FALSE")))
+
+class_diag(y_hat_knn[,1], zipcode$high_IMR, positive = 1)
+```
+
+Perform k-fold CV on this same model (fine to use caret). Run the `class_diag` function or equivalent to get out-of-sample performance averaged across your k folds.
+
+```{r}
+set.seed(1234)
+
+k=10 #choose number of folds
+
+data <- zipcode[sample(nrow(zipcode)),] #randomly order rows
+folds <- cut(seq(1:nrow(zipcode)),breaks=k,labels=F) #create folds
+
+diags<-NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train<-data[folds!=i,] 
+  test<-data[folds==i,]
+  truth<-test$high_IMR ## Truth labels for fold i
+  
+  ## Train model on training set (all but fold i)
+  fit<-knn3(high_IMR ~ median_income + hispanic + white + black, data=train)
+  
+  ## Test model on test set (fold i) 
+  probs <- predict(fit, newdata = test)[,2]
+  
+  ## Get diagnostics for fold i
+  diags <- rbind(diags, class_diag(probs, truth, positive=1))
+}
+
+
+summarize_all(diags,mean)
+```
+Discuss the results in a paragraph. How well is your model predicting new observations per CV AUC?  Do you see signs of overfitting? How does your nonparametric model compare with the linear model in its cross-validation performance?
+....
+
+--------------------------------------------------------------------------------
+#Regression/Prediction:
+Fit a linear regression model or regression tree to your entire dataset, predicting one of your numeric variables from at least 2 other variables
+
+Report the MSE for the overall dataset
+
+```{r}
+fit <- lm(black ~ IMR + median_income, data = zipcode)
+yhat <- predict(fit)
+
+mean((zipcode$black - yhat)^2)
+
+
+
+
+set.seed(1234)
+k=5 #choose number of folds
+
+data<-mtcars[sample(nrow(mtcars)),] #randomly order rows
+folds<-cut(seq(1:nrow(mtcars)),breaks=k,labels=F) #create folds
+
+diags<-NULL
+for(i in 1:k){
+  train <- zipcode[folds!=i,]
+  test <- zipcode[folds==i,]
+  
+  ## Fit linear regression model to training set
+  fit<-lm(black ~ IMR + median_income,data = zipcode)
+  
+  ## Get predictions/y-hats on test set (fold i)
+  yhat <- predict(fit, newdata = test)
+  
+  ## Compute prediction error  (MSE) for fold i
+  diags <-mean((test$black - yhat)^2) 
+}
+
+mean(diags) ## get average MSE across all folds (much higher error)!
+```
+55% of population has high IMR. When split at median income of 56,000 for zipcodes greater than 56k, only 24% have high IMR. For zipcodes less than 56k, 79% of htem have high IMR. Of the zipcodes with a median income less than 56k, 100% of those that have a black population greater than 29% have high IMR. 72% of zipcodes with black population less than 29% have a high IMR. 
+
+i.e. zipcodes with median income less than 56k and black population greater than 29% have high IMR
+
+
+
+
+
+
+Perform k-fold CV on this same model (fine to use caret). Calculate the average MSE across your k testing folds.
+    
+Does this model show signs of overfitting? Discussion the results in a paragraph
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
